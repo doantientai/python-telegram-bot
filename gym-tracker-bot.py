@@ -132,7 +132,8 @@ async def choosing_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
     await update.message.reply_text(
         f"{exercise_name}? \nLog the exercise: \n*_weight_* x *_reps_*",
-        reply_markup=reply_keyboard)
+        reply_markup=reply_keyboard,
+        parse_mode="MarkdownV2",)
 
     return DOING_EXERCISE
 

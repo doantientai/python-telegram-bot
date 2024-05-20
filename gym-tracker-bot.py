@@ -211,7 +211,7 @@ async def logging_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             pattern = r'(\d+([.,]?\d*)?)'
             match = re.search(pattern, log_text)
             duration = match.group(1).replace(",", ".")
-            query = f"INSERT INTO log (exercise_id, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {int(duration)*60}, CURRENT_TIMESTAMP)"
+            query = f"INSERT INTO log (exercise_id, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {duration}, CURRENT_TIMESTAMP)"
             reply_message = f"Got it, done {exercise_name} for {duration} minutes"
         case "cardio": # log the distance (a decimal or float number) duration (a decimal or float number)
             # pattern: a decimal or float number, a comma, then a decimal or float number
@@ -219,7 +219,7 @@ async def logging_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             match = re.search(pattern, log_text)       
             distance = match.group(1).replace(",", ".")
             duration = match.group(3).replace(",", ".")
-            query = f"INSERT INTO log (exercise_id, distance, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {distance}, {int(duration)*60}, CURRENT_TIMESTAMP)"
+            query = f"INSERT INTO log (exercise_id, distance, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {distance}, {duration}, CURRENT_TIMESTAMP)"
             reply_message = f"Got it, done *{exercise_name}* for *{distance}* m, during *{duration}* minutes"
         case "muscleupper" | "musclelower": # log the weight and reps
             pattern = r'(\d+([.,]?\d*)?)\s*x\s*(\d+)'

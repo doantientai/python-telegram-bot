@@ -16,7 +16,7 @@ bot.
 
 import logging
 from typing import Dict
-
+import json
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import (
     Application,
@@ -28,6 +28,7 @@ from telegram.ext import (
     filters,
 )
 import re
+import pymysql
 
 # Enable logging
 logging.basicConfig(
@@ -52,12 +53,45 @@ reply_keyboard = [
     ["Number of siblings", "Something else..."],
     ["Done"],
 ]
+
+log_guide = {
+    "collective": ["duration"],
+    "muscleupper": ["weight", "reps"],
+    "musclelower": ["weight", "reps"],
+    "cardio": ["duration", "distance"],
+}
+
 markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+
+def connect_to_database():
+    # Create a new connection
+    host = db_info["host"]
+    user = db_info["user"]
+    password = db_info["password"]
+    db = db_info["db"]
+    conn = pymysql.connect(host=host, user=user, password=password, db=db)
+    return conn
+
+def execute_query(query: str):
+    conn = connect_to_database()
+    cursor = conn.cursor()
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return rows
 
 def get_list_exercises_in_category(category: str) -> list[str]:
     """Helper function for getting the list of exercises."""
-    category = category.replace("/", "")
-    return [[x] for x in pseudo_database[category]] + [["New exercise"]]
+    # category = category.replace("/", "")
+    # return [[x] for x in pseudo_database[category]] + [["New exercise"]]
+
+    # QUERY DATABASE
+    query = f"SELECT exercise.full_name FROM exercise INNER JOIN category ON exercise.category_id = category.id  WHERE category.short_name = '{category}'"
+    rows = execute_query( query)
+
+    return rows
 
 def update_exercises_filter(context: ContextTypes.DEFAULT_TYPE) -> list[str]:
     """Helper function for getting the list of exercises."""
@@ -109,7 +143,7 @@ async def choosing_category(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     # ask user to choose an exercise
     exercises = get_list_exercises_in_category(category)
-    reply_text = "Choose an exercise below: "
+    reply_text = "Choose an exercise: "
     reply_markup = ReplyKeyboardMarkup(exercises, one_time_keyboard=True)
     await update.message.reply_text(reply_text, reply_markup=reply_markup)
 
@@ -120,18 +154,32 @@ async def choosing_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Start the chosen exercise."""
 
     # The exercise is already started
-    if "exercise" in context.user_data:
-        exercise_name = context.user_data.get("exercise")
-    # The exercise has just been chosen
-    else:
-        exercise_name = update.message.text
-        context.user_data.setdefault("exercise", exercise_name)
+    # if "exercise" in context.user_data:
+    #     exercise_name = context.user_data.get("exercise")
+    # # The exercise has just been chosen
+    # else:
+    exercise_name = update.message.text
+    context.user_data.setdefault("exercise", exercise_name)
+    
+    # get category
+    category = context.user_data.get("category")
+    match category:
+        case "collective":
+            reply_message = "Type the *_duration_* in minutes"
+        case "muscleupper":
+            reply_message = "Log the exercise: \n*_weight_* x *_reps_*"
+        case "musclelower":
+            reply_message = "Log the exercise: \n*_weight_* x *_reps_*"
+        case "cardio":
+            reply_message = "Log the exercise: \n*_duration_* x *_distance_*"
+        case _:
+            reply_message = f"Log the exercise: \n*_duration_*\nBy the way, never heard of this category {category}"
 
     reply_keyboard = ReplyKeyboardMarkup(
         [["Done"]], one_time_keyboard=True
     )
     await update.message.reply_text(
-        f"{exercise_name}? \nLog the exercise: \n*_weight_* x *_reps_*",
+        reply_message,
         reply_markup=reply_keyboard,
         parse_mode="MarkdownV2",)
 
@@ -144,26 +192,57 @@ async def adding_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     return ADDING_EXERCISE
 
-
 async def logging_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Store info provided by user and ask for the next category."""
-    text = update.message.text
-    pattern = r'(\d+([.,]?\d*)?)\s*x\s*(\d+)'
-    match = re.search(pattern, text)
-    weight = match.group(1).replace(",", ".")
-    reps = match.group(3)
+    log_text = update.message.text
+    exercise_name = context.user_data.get('exercise')
+    exercise_name = exercise_name.lower().replace(" ", "")
 
-    # TODO: Add weight and reps to the database
+    # get the category of the exercise from the database
+    query = f"SELECT c.short_name FROM category c INNER JOIN exercise e ON c.id = e.category_id WHERE e.short_name = '{exercise_name}'"
+    rows = execute_query( query)
+    
+    category = rows
+    while len(category) == 1:
+        category = category[0]
+
+    match category:
+        case "collective": # only log the duration (a decimal or float number)
+            pattern = r'(\d+([.,]?\d*)?)'
+            match = re.search(pattern, log_text)
+            duration = match.group(1).replace(",", ".")
+            query = f"INSERT INTO log (exercise_id, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {int(duration)*60}, CURRENT_TIMESTAMP)"
+            reply_message = f"Got it, done {exercise_name} for {duration} minutes"
+        case "cardio": # log the distance (a decimal or float number) duration (a decimal or float number)
+            # pattern: a decimal or float number, a comma, then a decimal or float number
+            pattern = r'(\d+([.,]?\d*)?)\s*x\s*(\d+([.,]?\d*)?)\s*'
+            match = re.search(pattern, log_text)       
+            distance = match.group(1).replace(",", ".")
+            duration = match.group(3).replace(",", ".")
+            query = f"INSERT INTO log (exercise_id, distance, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {distance}, {int(duration)*60}, CURRENT_TIMESTAMP)"
+            reply_message = f"Got it, done *{exercise_name}* for *{distance}* m, during *{duration}* minutes"
+        case "muscleupper" | "musclelower": # log the weight and reps
+            pattern = r'(\d+([.,]?\d*)?)\s*x\s*(\d+)'
+            match = re.search(pattern, log_text)
+            weight = match.group(1).replace(",", ".")
+            reps = match.group(3)
+            query = f"INSERT INTO log (exercise_id, weight, rep, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {weight}, {reps}, CURRENT_TIMESTAMP)"
+            reply_message = f"Got it, a set of *{exercise_name}* at *{weight}* kg, for *{reps}* reps"
+        case _:
+            reply_message = f"Unknown category {category}"
+
+    execute_query( query)
 
     reply_keyboard = ReplyKeyboardMarkup(
-        [[text], ["Done"]], one_time_keyboard=True
+        [[log_text], ["Done"]], one_time_keyboard=True
     )
 
     exercise_name = context.user_data.get("exercise")    
 
     await update.message.reply_text(
-        f"{exercise_name}: {weight}kg x {reps} times \n",
+        reply_message,
         reply_markup=reply_keyboard,
+        parse_mode="MarkdownV2"
     )
 
     return DOING_EXERCISE
@@ -178,7 +257,7 @@ async def done_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     # ask user to choose an exercise
     exercises = get_list_exercises_in_category(category)
-    reply_text = "Choose an exercise below: "
+    reply_text = "Choose an exercise: "
     reply_markup = ReplyKeyboardMarkup(exercises, one_time_keyboard=True)
     await update.message.reply_text(reply_text, reply_markup=reply_markup)
 
@@ -190,7 +269,6 @@ async def show_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         f"This is what you already told me: {facts_to_str(context.user_data)}"
     )
-
 
 async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ending session. Remove keyboard"""
@@ -211,7 +289,7 @@ def main() -> None:
     """Run the bot."""
     # Create the Application and pass it your bot's token.
     persistence = PicklePersistence(filepath="conversationbot")
-    application = Application.builder().token("6866660801:AAFJU5kEP7aG96m_4njx-0wjuu6N9bIyNvg").persistence(persistence).build()
+    application = Application.builder().token(token).persistence(persistence).build()
 
     # Add conversation handler with the states CHOOSING, TYPING_CHOICE and TYPING_REPLY
     conv_handler = ConversationHandler(
@@ -240,9 +318,11 @@ def main() -> None:
             ],
             DOING_EXERCISE: [
                 MessageHandler(
-                    filters.Regex("^(\d+([.,]?\d*)?)\s*x\s*(\d+)$"), # weight x reps
+                    # filters.Regex(r"^(\d+([.,]?\d*)?)\s*x\s*(\d+)$"), # weight x reps
+                    filters.TEXT & ~(filters.COMMAND | filters.Regex("^Done$")), 
                     logging_exercise,
                 ),
+                MessageHandler(filters.Text(["/collective", "/muscleupper", "/musclelower", "/cardio"]), choosing_category),
                 MessageHandler(filters.Regex("^Done$"), done_exercise),
             ],
         },
@@ -261,4 +341,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    path_keys = "C:/Users/Tai/Desktop/gym-tracker-bot/gym-tracker-telegram/python-telegram-bot/keys.json"
+    with open(path_keys, "r") as f:
+        keys = json.load(f)
+    
+    token = keys["gym-tracker-bot"]["token"]
+    db_info = keys["database"]
+
     main()

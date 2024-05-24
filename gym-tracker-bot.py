@@ -29,6 +29,8 @@ from telegram.ext import (
 )
 import re
 import pymysql
+import pytz
+from datetime import datetime
 
 # Enable logging
 logging.basicConfig(
@@ -217,13 +219,13 @@ async def logging_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     exercise_name = context.user_data.get('exercise')
     exercise_name = exercise_name.lower().replace(" ", "")
 
-    # get the category of the exercise from the database
-    query = f"SELECT c.short_name FROM category c INNER JOIN exercise e ON c.id = e.category_id WHERE e.short_name = '{exercise_name}'"
-    rows = execute_query( query)
-    
-    category = rows
-    while len(category) == 1:
-        category = category[0]
+    # get category
+    category = context.user_data.get('category')
+    user_id = update.message.from_user.id
+
+    # Get the current time in France
+    france_timezone = pytz.timezone('Europe/Paris')    
+    time_stamp = datetime.now(france_timezone).strftime("%Y-%m-%d %H:%M:%S")
 
     match category:
         case "collective": # only log the duration (a decimal or float number)
@@ -231,7 +233,7 @@ async def logging_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             match = re.search(pattern, log_text)
             duration = match.group(1).replace(",", ".")
             #TODO : add user id to the log
-            query = f"INSERT INTO log (exercise_id, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {duration}, CURRENT_TIMESTAMP)"
+            query = f"INSERT INTO log (exercise_id, user_id, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {user_id}, {duration}, '{time_stamp}')"
             reply_message = f"Got it, done {exercise_name} for {duration} minutes"
         case "cardio": # log the distance (a decimal or float number) duration (a decimal or float number)
             # pattern: a decimal or float number, a comma, then a decimal or float number
@@ -239,14 +241,14 @@ async def logging_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             match = re.search(pattern, log_text)       
             distance = match.group(1).replace(",", ".")
             duration = match.group(3).replace(",", ".")
-            query = f"INSERT INTO log (exercise_id, distance, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {distance}, {duration}, CURRENT_TIMESTAMP)"
+            query = f"INSERT INTO log (exercise_id, user_id, distance, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {user_id}, {distance}, {duration}, '{time_stamp}')"
             reply_message = f"Got it, done *{exercise_name}* for *{distance}* m, during *{duration}* minutes"
         case "muscleupper" | "musclelower": # log the weight and reps
             pattern = r'(\d+([.,]?\d*)?)\s*x\s*(\d+)'
             match = re.search(pattern, log_text)
             weight = match.group(1).replace(",", ".")
             reps = match.group(3)
-            query = f"INSERT INTO log (exercise_id, weight, rep, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {weight}, {reps}, CURRENT_TIMESTAMP)"
+            query = f"INSERT INTO log (exercise_id, user_id, weight, rep, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {user_id}, {weight}, {reps}, '{time_stamp}')"
             reply_message = f"Got it, a set of *{exercise_name}* at *{weight}* kg, for *{reps}* reps"
         case _:
             reply_message = f"Unknown category {category}"

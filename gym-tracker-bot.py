@@ -89,7 +89,10 @@ def get_list_exercises_in_category(category: str) -> list[str]:
 
     # QUERY DATABASE
     query = f"SELECT exercise.full_name FROM exercise INNER JOIN category ON exercise.category_id = category.id  WHERE category.short_name = '{category}'"
-    rows = execute_query( query)
+    rows = execute_query(query)
+
+    # add "New"
+    rows = (("New",),) + rows
 
     return rows
 
@@ -125,11 +128,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return CHOOSING_CATEGORY
 
 async def choosing_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Letting the user choose a category."""
-    # if "category" in context.user_data:
-    #     category = context.user_data.get("category")
-    # else:
-    # extract category from user message
+    """You have just chosen a category, now showing the exercises."""
     category = update.message.text
     category = category.lower().replace(" ", "").removeprefix("/")
 
@@ -151,13 +150,8 @@ async def choosing_category(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def choosing_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start the chosen exercise."""
+    """You have just chosen an exercise, now log it."""
 
-    # The exercise is already started
-    # if "exercise" in context.user_data:
-    #     exercise_name = context.user_data.get("exercise")
-    # # The exercise has just been chosen
-    # else:
     exercise_name = update.message.text
     context.user_data.setdefault("exercise", exercise_name)
     
@@ -178,6 +172,8 @@ async def choosing_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     reply_keyboard = ReplyKeyboardMarkup(
         [["Done"]], one_time_keyboard=True
     )
+    #TODO showing the last session logs of the same exercise as a reference
+
     await update.message.reply_text(
         reply_message,
         reply_markup=reply_keyboard,
@@ -185,12 +181,35 @@ async def choosing_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     return DOING_EXERCISE
 
-
-async def adding_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def pressed_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask the user for a description of a custom category."""
     await update.message.reply_text("What is the name of the exercise?")
 
     return ADDING_EXERCISE
+
+async def adding_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Getting the new name, add to the table exercise."""
+
+    exercise_name = update.message.text
+    category = context.user_data.get("category")
+    context.user_data.setdefault("exercise", exercise_name)
+
+
+    # get the category_id given category, then add the exercise to the table exercise with category_id
+    query = f"SELECT id FROM category WHERE short_name = '{category}'"
+    rows = execute_query(query)
+    category_id = rows[0][0]
+    query = f"INSERT INTO exercise (full_name, short_name, category_id) VALUES ('{exercise_name}', '{exercise_name.lower().replace(' ', '')}', {category_id})"
+
+    execute_query(query)
+
+    # ask user to choose an exercise
+    exercises = get_list_exercises_in_category(category)
+    reply_text = "Exercise added. Now you can choose it:"
+    reply_markup = ReplyKeyboardMarkup(exercises, one_time_keyboard=True)
+    await update.message.reply_text(reply_text, reply_markup=reply_markup)
+
+    return CHOOSING_EXERCISE
 
 async def logging_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Store info provided by user and ask for the next category."""
@@ -211,6 +230,7 @@ async def logging_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             pattern = r'(\d+([.,]?\d*)?)'
             match = re.search(pattern, log_text)
             duration = match.group(1).replace(",", ".")
+            #TODO : add user id to the log
             query = f"INSERT INTO log (exercise_id, duration, created_at) VALUES ((SELECT id FROM exercise WHERE short_name = '{exercise_name}'), {duration}, CURRENT_TIMESTAMP)"
             reply_message = f"Got it, done {exercise_name} for {duration} minutes"
         case "cardio": # log the distance (a decimal or float number) duration (a decimal or float number)
@@ -295,26 +315,25 @@ def main() -> None:
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
-            # CommandHandler(["collective", "muscleupper", "musclelower", "cardio"], choosing_category),
         ],
         states={
             CHOOSING_CATEGORY: [
-                # MessageHandler(filters.TEXT & ~(filters.COMMAND), choosing_category),
                 MessageHandler(filters.Text(["/collective", "/muscleupper", "/musclelower", "/cardio"]), choosing_category),
             ],
             CHOOSING_EXERCISE: [
-                MessageHandler(filters.Regex("^New exercise$"), adding_exercise),
+                MessageHandler(filters.Regex("^New$"), pressed_new),
                 MessageHandler(
                     filters.TEXT & ~(filters.COMMAND | filters.Regex("^Done$")) ,
                     choosing_exercise
                 ),
                 MessageHandler(filters.Text(["/collective", "/muscleupper", "/musclelower", "/cardio"]), choosing_category),
             ],
-            ADDING_EXERCISE: [
+            ADDING_EXERCISE: [ 
+                MessageHandler(filters.Text(["/collective", "/muscleupper", "/musclelower", "/cardio"]), choosing_category),
                 MessageHandler(
-                    filters.TEXT & ~(filters.COMMAND | filters.Regex("^Done$")), 
-                    choosing_exercise
-                )
+                    filters.TEXT & ~(filters.COMMAND | filters.Regex("^Done$")),
+                    adding_exercise,
+                ),
             ],
             DOING_EXERCISE: [
                 MessageHandler(

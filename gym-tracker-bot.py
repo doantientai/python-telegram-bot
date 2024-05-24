@@ -74,10 +74,10 @@ def connect_to_database():
     conn = pymysql.connect(host=host, user=user, password=password, db=db)
     return conn
 
-def execute_query(query: str):
+def execute_query(query: str, *args):
     conn = connect_to_database()
     cursor = conn.cursor()
-    cursor.execute(query)
+    cursor.execute(query, args)
     rows = cursor.fetchall()
     conn.commit()
     cursor.close()
@@ -152,10 +152,56 @@ async def choosing_category(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def choosing_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """You have just chosen an exercise, now log it."""
+    """You have just chosen an exercise, now as the user to log it."""
 
-    exercise_name = update.message.text
-    context.user_data.setdefault("exercise", exercise_name)
+    exercise_short_name = update.message.text.lower().replace(" ", "").removeprefix("/")
+    context.user_data.setdefault("exercise", exercise_short_name)
+    user_id = update.message.from_user.id
+
+    # get last time exercise was done
+    query = """
+        SELECT *
+        FROM log
+        WHERE
+            exercise_id = (
+                SELECT id
+                FROM exercise
+                WHERE short_name = %s
+            )
+            AND user_id = %s
+            AND CAST(created_at AS DATE) = (
+                SELECT CAST(MAX(created_at) AS DATE)
+                FROM log
+                WHERE exercise_id = (
+                    SELECT id
+                    FROM exercise
+                    WHERE short_name = %s
+                )
+                AND user_id = %s
+            );
+    """
+
+
+    # execute query
+    rows = execute_query(query, exercise_short_name, user_id, exercise_short_name, user_id)
+
+    # extract values of table log
+    
+    if len(rows) > 0:
+        message_previous_log = ""
+        for row in rows:
+            id, user_id, exercise_id, weight, reps, distance, duration, created_at = row
+            days = (datetime.now() - created_at).days
+            message_previous_log += f"📅 Last time: {days} days ago\n"
+            message_previous_log += (f"⏱ {duration} mins " if duration is not None else "")
+            message_previous_log += (f"🏃‍♀️ {distance} m " if distance is not None else "")
+            message_previous_log += (f"🏋️‍♀️ {weight} kg x " if weight is not None else "")
+            message_previous_log += (f"{reps} reps" if reps is not None else "")
+            message_previous_log += "\n"
+    else:
+        message_previous_log = "Good luck for your first time 🎉\n"
+
+    await update.message.reply_text(message_previous_log)
     
     # get category
     category = context.user_data.get("category")

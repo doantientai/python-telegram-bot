@@ -125,7 +125,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # reply_keyboard = [["Collective", "Muscle Upper", "Muscle Lower", "Cardio"]]
     await update.message.reply_text(
         reply_text, 
-        # reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+        reply_markup=ReplyKeyboardRemove()
     )
     return CHOOSING_CATEGORY
 
@@ -201,7 +201,7 @@ async def choosing_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     else:
         message_previous_log = "Good luck for your first time 🎉\n"
 
-    await update.message.reply_text(message_previous_log)
+    await update.message.reply_text(message_previous_log, reply_markup=ReplyKeyboardRemove())
     
     # get category
     category = context.user_data.get("category")
@@ -231,7 +231,7 @@ async def choosing_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def pressed_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask the user for a description of a custom category."""
-    await update.message.reply_text("What is the name of the exercise?")
+    await update.message.reply_text("What is the name of the exercise?", reply_markup=ReplyKeyboardRemove())
 
     return ADDING_EXERCISE
 
@@ -332,12 +332,6 @@ async def done_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return CHOOSING_EXERCISE
 
 
-async def show_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Display the gathered info."""
-    await update.message.reply_text(
-        f"This is what you already told me: {facts_to_str(context.user_data)}"
-    )
-
 async def quit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ending session. Remove keyboard"""
 
@@ -399,10 +393,7 @@ def main() -> None:
     )
 
     application.add_handler(conv_handler)
-
-    show_data_handler = CommandHandler("show_data", show_data)
-    application.add_handler(show_data_handler)
-
+    
     # Run the bot until the user presses Ctrl-C
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
